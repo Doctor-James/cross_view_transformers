@@ -17,8 +17,8 @@ encoder:
 
     model_name: efficientnet-b4
     layer_names: ['reduction_2', 'reduction_4']
-    image_height: ${data.image.h}
-    image_width: ${data.image.w}
+    image_height: ${data.image.h} #224
+    image_width: ${data.image.w} #480
 
   cross_view:
     heads: 4

@@ -35,7 +35,7 @@ def maybe_resume_training(experiment):
 @hydra.main(config_path=CONFIG_PATH, config_name=CONFIG_NAME)
 def main(cfg):
     setup_config(cfg)
-
+    
     pl.seed_everything(cfg.experiment.seed, workers=True)
 
     Path(cfg.experiment.save_dir).mkdir(exist_ok=True, parents=False)

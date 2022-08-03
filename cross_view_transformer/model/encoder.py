@@ -302,7 +302,7 @@ class Encoder(nn.Module):
 
         cross_views = list()
         layers = list()
-
+        #self.backbone.output_shapes为多尺度输出，此处为[torch.Size([1, 32, 56, 120]), torch.Size([1, 112, 14, 30])]
         for feat_shape, num_layers in zip(self.backbone.output_shapes, middle):
             _, feat_dim, feat_height, feat_width = self.down(torch.zeros(feat_shape)).shape
 

@@ -10,10 +10,10 @@ class ModelModule(pl.LightningModule):
             cfg,
             ignore=['backbone', 'loss_func', 'metrics', 'optimizer_args', 'scheduler_args'])
 
-        self.backbone = backbone
+        self.backbone = backbone #此处backbone即为cvt，而不是efficientnet
         self.loss_func = loss_func
         self.metrics = metrics
-
+        self.batch = None
         self.optimizer_args = optimizer_args
         self.scheduler_args = scheduler_args
 
@@ -36,10 +36,30 @@ class ModelModule(pl.LightningModule):
             return {'loss': loss, 'batch': batch, 'pred': pred}
 
         return {'loss': loss}
+    
+    def onnx_export(self, batch):
+        self.backbone.eval()
+        torch.onnx.export(self.backbone,                     # model being run
+                  ##since model is in the cuda mode, input also need to be
+                  batch,              # model input (or a tuple for multiple inputs)
+                  "model_troch_export.onnx", # where to save the model (can be a file or file-like object)
+                  export_params=True,        # store the trained parameter weights inside the model file
+                  opset_version=12,          # the ONNX version to export the model to
+                  do_constant_folding=True,  # whether to execute constant folding for optimization
+                  input_names = ['input'],   # the model's input names
+                  output_names = ['output'], # the model's output names
+                  dynamic_axes={'input' : {0 : 'batch_size'},    # variable lenght axes
+                                'output' : {0 : 'batch_size'}})
+        print('--------export finish--------')
+
 
     def training_step(self, batch, batch_idx):
+        self.batch = batch
         return self.shared_step(batch, 'train', True,
                                 batch_idx % self.hparams.experiment.log_image_interval == 0)
+
+    def training_epoch_end(self, training_step_outputs):
+        self.onnx_export(self.batch)
 
     def validation_step(self, batch, batch_idx):
         return self.shared_step(batch, 'val', False,
