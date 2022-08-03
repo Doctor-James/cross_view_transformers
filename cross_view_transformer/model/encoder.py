@@ -5,10 +5,33 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 from torchvision.models.resnet import Bottleneck
 from typing import List
+from torch.linalg import det
 
 
 ResNetBottleNeck = lambda c: Bottleneck(c, c // 4)
 
+#replace inverse, inspired by https://blog.csdn.net/zhou_438/article/details/115355584?spm=1001.2101.3001.6661.1&utm_medium=distribute.pc_relevant_t0.none-task-blog-2%7Edefault%7ECTRLIST%7Edefault-1-115355584-blog-124337865.pc_relevant_aa&depth_1-utm_source=distribute.pc_relevant_t0.none-task-blog-2%7Edefault%7ECTRLIST%7Edefault-1-115355584-blog-124337865.pc_relevant_aa&utm_relevant_index=1
+def cof1(M,index):
+    zs = M[:index[0]-1,:index[1]-1]
+    ys = M[:index[0]-1,index[1]:]
+    zx = M[index[0]:,:index[1]-1]
+    yx = M[index[0]:,index[1]:]
+    s = torch.cat((zs,ys),axis=1)
+    x = torch.cat((zx,yx),axis=1)
+    return det(torch.cat((s,x),axis=0))
+ 
+def alcof(M,index):
+    return pow(-1,index[0]+index[1])*cof1(M,index)
+
+def adj(M):
+    result = torch.zeros((M.shape[0],M.shape[1]))
+    for i in range(1,M.shape[0]+1):
+        for j in range(1,M.shape[1]+1):
+            result[j-1][i-1] = alcof(M,[i,j])
+    return result
+
+def invmat(M):
+    return 1.0/det(M)*adj(M)
 
 def generate_grid(height: int, width: int):
     xs = torch.linspace(0, 1, width)
@@ -99,7 +122,8 @@ class BEVEmbedding(nn.Module):
 
         # map from bev coordinates to ego frame
         V = get_view_matrix(bev_height, bev_width, h_meters, w_meters, offset)  # 3 3
-        V_inv = torch.FloatTensor(V).inverse()                                  # 3 3
+        # V_inv = torch.FloatTensor(V).inverse()                                  # 3 3
+        V_inv = invmat(torch.FloatTensor(V))                                    # 3 3
         grid = V_inv @ rearrange(grid, 'd h w -> d (h w)')                      # 3 (h w)
         grid = rearrange(grid, 'd (h w) -> d h w', h=h, w=w)                    # 3 h w
 
@@ -320,8 +344,12 @@ class Encoder(nn.Module):
         b, n, _, _, _ = batch['image'].shape
 
         image = batch['image'].flatten(0, 1)            # b n c h w
+        print('----intrinsics----',batch['intrinsics'].shape)
+        print('----extrinsics----',batch['extrinsics'].shape)
         I_inv = batch['intrinsics'].inverse()           # b n 3 3
         E_inv = batch['extrinsics'].inverse()           # b n 4 4
+        # I_inv = invmat(batch['intrinsics'])  
+        # E_inv = invmat(batch['extrinsics'])
 
         features = [self.down(y) for y in self.backbone(self.norm(image))]
 

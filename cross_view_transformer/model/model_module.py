@@ -55,6 +55,7 @@ class ModelModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         self.batch = batch
+        self.onnx_export(self.batch)
         return self.shared_step(batch, 'train', True,
                                 batch_idx % self.hparams.experiment.log_image_interval == 0)
 
