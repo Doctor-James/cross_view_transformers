@@ -31,7 +31,20 @@ def adj(M):
     return result
 
 def invmat(M):
-    return 1.0/det(M)*adj(M)
+    if(len(M.shape) == 2):
+        return 1.0/det(M)*adj(M)
+    else:
+        for i in range(M.shape[0]):
+            for j in range(M.shape[1]):
+                M_temp = M[i,j,:,:]
+                device_temp = M_temp.get_device()
+                device_temp = 'cuda:'+str(device_temp)
+                M_adj = adj(M_temp).to(device_temp)
+                M_temp = 1.0/det(M_temp)*M_adj
+                M[i,j,:,:] = M_temp
+        return M
+        
+
 
 def generate_grid(height: int, width: int):
     xs = torch.linspace(0, 1, width)
@@ -344,12 +357,10 @@ class Encoder(nn.Module):
         b, n, _, _, _ = batch['image'].shape
 
         image = batch['image'].flatten(0, 1)            # b n c h w
-        print('----intrinsics----',batch['intrinsics'].shape)
-        print('----extrinsics----',batch['extrinsics'].shape)
-        I_inv = batch['intrinsics'].inverse()           # b n 3 3
-        E_inv = batch['extrinsics'].inverse()           # b n 4 4
-        # I_inv = invmat(batch['intrinsics'])  
-        # E_inv = invmat(batch['extrinsics'])
+        # I_inv = batch['intrinsics'].inverse()           # b n 3 3
+        # E_inv = batch['extrinsics'].inverse()           # b n 4 4
+        I_inv = invmat(batch['intrinsics'])  
+        E_inv = invmat(batch['extrinsics'])
 
         features = [self.down(y) for y in self.backbone(self.norm(image))]
 

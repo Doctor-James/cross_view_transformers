@@ -16,6 +16,7 @@ class ModelModule(pl.LightningModule):
         self.batch = None
         self.optimizer_args = optimizer_args
         self.scheduler_args = scheduler_args
+        self.idx = 0
 
     def forward(self, batch):
         return self.backbone(batch)
@@ -55,7 +56,9 @@ class ModelModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         self.batch = batch
-        self.onnx_export(self.batch)
+        # self.idx = self.idx + 1
+        # if(self.idx>10):
+        #     self.onnx_export(self.batch)
         return self.shared_step(batch, 'train', True,
                                 batch_idx % self.hparams.experiment.log_image_interval == 0)
 
