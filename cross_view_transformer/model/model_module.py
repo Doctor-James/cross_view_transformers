@@ -1,7 +1,7 @@
 import torch
 import pytorch_lightning as pl
 
-
+isonnx_export = False #训练时不打开，导出onnx模型时打开，且调小batchsize
 class ModelModule(pl.LightningModule):
     def __init__(self, backbone, loss_func, metrics, optimizer_args, scheduler_args=None, cfg=None):
         super().__init__()
@@ -56,14 +56,13 @@ class ModelModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         self.batch = batch
-        # self.idx = self.idx + 1
-        # if(self.idx>10):
-        #     self.onnx_export(self.batch)
+        if(isonnx_export):
+            self.onnx_export(self.batch)
         return self.shared_step(batch, 'train', True,
                                 batch_idx % self.hparams.experiment.log_image_interval == 0)
 
-    def training_epoch_end(self, training_step_outputs):
-        self.onnx_export(self.batch)
+    # def training_epoch_end(self, training_step_outputs):
+    #     self.onnx_export(self.batch)
 
     def validation_step(self, batch, batch_idx):
         return self.shared_step(batch, 'val', False,

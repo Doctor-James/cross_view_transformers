@@ -47,11 +47,11 @@ def invmat(M):
 
 
 def generate_grid(height: int, width: int):
-    xs = torch.linspace(0, 1, width)
+    xs = torch.linspace(0, 1, width) #生成0，1之间的等间距点，个数为width
     ys = torch.linspace(0, 1, height)
 
-    indices = torch.stack(torch.meshgrid((xs, ys), indexing='xy'), 0)       # 2 h w
-    indices = F.pad(indices, (0, 0, 0, 0, 0, 1), value=1)                   # 3 h w
+    indices = torch.stack(torch.meshgrid((xs, ys), indexing='xy'), 0)       # 2 h w ，生成网格
+    indices = F.pad(indices, (0, 0, 0, 0, 0, 1), value=1)                   # 3 h w ，padding
     indices = indices[None]                                                 # 1 3 h w
 
     return indices
@@ -125,6 +125,7 @@ class BEVEmbedding(nn.Module):
         super().__init__()
 
         # each decoder block upsamples the bev embedding by a factor of 2
+        # decoder_blocks [128,128,64],bev_height==bev_width==200
         h = bev_height // (2 ** len(decoder_blocks))
         w = bev_width // (2 ** len(decoder_blocks))
 
@@ -137,15 +138,15 @@ class BEVEmbedding(nn.Module):
         V = get_view_matrix(bev_height, bev_width, h_meters, w_meters, offset)  # 3 3
         # V_inv = torch.FloatTensor(V).inverse()                                  # 3 3
         V_inv = invmat(torch.FloatTensor(V))                                    # 3 3
-        grid = V_inv @ rearrange(grid, 'd h w -> d (h w)')                      # 3 (h w)
+        grid = V_inv @ rearrange(grid, 'd h w -> d (h w)')                      # 3 (h w) @为矩阵乘法，相当于numpy中matmul
         grid = rearrange(grid, 'd (h w) -> d h w', h=h, w=w)                    # 3 h w
 
         # egocentric frame
-        self.register_buffer('grid', grid, persistent=False)                    # 3 h w
-        self.learned_features = nn.Parameter(sigma * torch.randn(dim, h, w))    # d h w
+        self.register_buffer('grid', grid, persistent=False)                    # 3 h w 在内存中定义一个常量，供使用
+        self.learned_features = nn.Parameter(sigma * torch.randn(dim, h, w))    # d h w dim=128
 
     def get_prior(self):
-        return self.learned_features
+        return self.learned_features #此处的learned_features应该为query中的c
 
 
 class CrossAttention(nn.Module):
@@ -184,13 +185,13 @@ class CrossAttention(nn.Module):
         k = self.to_k(k)                                # b (n h w) (heads dim_head)
         v = self.to_v(v)                                # b (n h w) (heads dim_head)
 
-        # Group the head dim with batch dim
+        # Group the head dim with batch dim，此处作用是将multi-heads的heads合并到b维度，作为“个数”
         q = rearrange(q, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
         k = rearrange(k, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
         v = rearrange(v, 'b ... (m d) -> (b m) ... d', m=self.heads, d=self.dim_head)
 
-        # Dot product attention along cameras
-        dot = self.scale * torch.einsum('b n Q d, b n K d -> b n Q K', q, k)
+        # Dot product attention along cameras，attention = softmax(Q @ K^t)V
+        dot = self.scale * torch.einsum('b n Q d, b n K d -> b n Q K', q, k) #q与k的转置相乘
         dot = rearrange(dot, 'b n Q K -> b Q (n K)')
         att = dot.softmax(dim=-1)
 
@@ -231,7 +232,7 @@ class CrossViewAttention(nn.Module):
         super().__init__()
 
         # 1 1 3 h w
-        image_plane = generate_grid(feat_height, feat_width)[None]
+        image_plane = generate_grid(feat_height, feat_width)[None] #feat_height为image feature的高（多尺度）
         image_plane[:, :, 0] *= image_width
         image_plane[:, :, 1] *= image_height
 
@@ -278,10 +279,12 @@ class CrossViewAttention(nn.Module):
         pixel = self.image_plane                                                # b n 3 h w
         _, _, _, h, w = pixel.shape
 
+        #此处的c应该是外参中的t，代表相机的位置（x,y,z,1）
         c = E_inv[..., -1:]                                                     # b n 4 1
         c_flat = rearrange(c, 'b n ... -> (b n) ...')[..., None]                # (b n) 4 1 1
         c_embed = self.cam_embed(c_flat)                                        # (b n) d 1 1
 
+        #此处得到论文中的d
         pixel_flat = rearrange(pixel, '... h w -> ... (h w)')                   # 1 1 3 (h w)
         cam = I_inv @ pixel_flat                                                # b n 3 (h w)
         cam = F.pad(cam, (0, 0, 0, 1, 0, 0, 0, 0), value=1)                     # b n 4 (h w)
@@ -289,6 +292,7 @@ class CrossViewAttention(nn.Module):
         d_flat = rearrange(d, 'b n d (h w) -> (b n) d h w', h=h, w=w)           # (b n) 4 h w
         d_embed = self.img_embed(d_flat)                                        # (b n) d h w
 
+        #此处 img_embed为论文中camera-aware positional embeddings δ，不过与论文略有不同，此处为δ - τk
         img_embed = d_embed - c_embed                                           # (b n) d h w
         img_embed = img_embed / (img_embed.norm(dim=1, keepdim=True) + 1e-7)    # (b n) d h w
 
@@ -362,7 +366,7 @@ class Encoder(nn.Module):
         I_inv = invmat(batch['intrinsics'])  
         E_inv = invmat(batch['extrinsics'])
 
-        features = [self.down(y) for y in self.backbone(self.norm(image))]
+        features = [self.down(y) for y in self.backbone(self.norm(image))] #提取特征
 
         x = self.bev_embedding.get_prior()              # d H W
         x = repeat(x, '... -> b ...', b=b)              # b d H W
